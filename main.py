@@ -23,15 +23,13 @@ if uploaded_file_1 and uploaded_file_2:
     df2["Start"] = pd.to_datetime(df2["Start"])
     df2["End"] = df2["Start"] + pd.to_timedelta(df2["Duration"], unit="D")
 
-    col1.subheader("📅 Baseline Gantt Chart")
-    fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment")
-    fig1.update_yaxes(autorange="reversed")
-    col1.plotly_chart(fig1, use_container_width=True)
+    with col1:
+        st.subheader("📅 Baseline Gantt Chart")
+        st.plotly_chart(px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="baseline_chart")
 
-    col2.subheader("📅 Actual Gantt Chart")
-    fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment")
-    fig2.update_yaxes(autorange="reversed")
-    col2.plotly_chart(fig2, use_container_width=True)
+    with col2:
+        st.subheader("📅 Actual Gantt Chart")
+        st.plotly_chart(px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="actual_chart")
 
     st.subheader("🧠 AI Analysis Data Preparation")
     comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
