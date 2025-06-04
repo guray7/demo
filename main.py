@@ -31,7 +31,7 @@ def extract_table_safe(lines, table_name):
             elif len(row) > len(headers):
                 row = row[:len(headers)]
             table_rows.append(row)
-        elif capturing and not line.startswith("%R"):
+        elif capturing and not line.startswith("%R") and not line.startswith("%F"):
             break
 
     return pd.DataFrame(table_rows, columns=headers) if table_rows else None
@@ -51,6 +51,7 @@ def parse_xer(file):
         task_df["Start"] = pd.to_datetime(task_df["Start"], errors='coerce')
         task_df["End"] = pd.to_datetime(task_df["End"], errors='coerce')
         task_df["Duration"] = (task_df["End"] - task_df["Start"]).dt.days
+        task_df = task_df.dropna(subset=["Start", "End"])
         task_df["Crew Readiness"] = 80
         task_df["Season"] = task_df["Start"].dt.month.map(lambda m: "Winter" if m in [12,1,2] else "Summer")
     return task_df
