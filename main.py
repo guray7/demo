@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
-import os
 
-st.set_page_config(page_title="Shutdown Delay Comparator", layout="wide")
+st.set_page_config(page_title="Shutdown Delay Comparator (.csv & .xer)", layout="wide")
 
-st.title("📊 Side-by-Side Gantt Chart for Shutdown Projects (.csv & .xer)")
+st.title("📊 Oil & Gas Shutdown AI: Primavera .xer & CSV Analysis Panel")
 
 col1, col2 = st.columns(2)
 
@@ -15,27 +14,47 @@ with col1:
 with col2:
     uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv or .xer)", type=["csv", "xer"], key="actual_file")
 
-@st.cache_data
-def parse_xer(file):
-    from xerparser import XerParser
-    xer = XerParser(file)
-    df = pd.DataFrame(xer.activities)
-    df = df.rename(columns={
-        'task_name': 'Task',
-        'start_date': 'Start',
-        'end_date': 'End',
-        'duration': 'Duration',
-        'resource_name': 'Equipment',
-        'remaining_duration': 'Crew Readiness'  # Placeholder
-    })
-    df = df[["Task", "Start", "End", "Duration", "Equipment", "Crew Readiness"]].dropna()
-    df["Start"] = pd.to_datetime(df["Start"])
-    df["End"] = pd.to_datetime(df["End"])
-    df["Duration"] = (df["End"] - df["Start"]).dt.days
-    df["Season"] = df["Start"].dt.month.map(lambda m: "Winter" if m in [12,1,2] else "Summer")
-    return df
+def extract_table_safe(lines, table_name):
+    table_rows = []
+    capturing = False
+    headers = []
 
-@st.cache_data
+    for line in lines:
+        if line.startswith("%T") and table_name in line:
+            capturing = True
+        elif capturing and line.startswith("%F"):
+            headers = line.strip().split("\t")[1:]
+        elif capturing and line.startswith("%R"):
+            row = line.strip().split("\t")[1:]
+            if len(row) < len(headers):
+                row += [None] * (len(headers) - len(row))
+            elif len(row) > len(headers):
+                row = row[:len(headers)]
+            table_rows.append(row)
+        elif capturing and not line.startswith("%R"):
+            break
+
+    return pd.DataFrame(table_rows, columns=headers) if table_rows else None
+
+def parse_xer(file):
+    lines = file.read().decode("utf-8", errors="ignore").splitlines()
+    task_df = extract_table_safe(lines, "TASK")
+    if task_df is not None:
+        task_df = task_df.rename(columns={
+            'task_name': 'Task',
+            'early_start_date': 'Start',
+            'early_end_date': 'End',
+            'orig_dur_hr_cnt': 'Duration',
+            'wbs_id': 'Equipment'  # Placeholder
+        })
+        task_df = task_df[["Task", "Start", "End", "Duration", "Equipment"]].dropna()
+        task_df["Start"] = pd.to_datetime(task_df["Start"], errors='coerce')
+        task_df["End"] = pd.to_datetime(task_df["End"], errors='coerce')
+        task_df["Duration"] = (task_df["End"] - task_df["Start"]).dt.days
+        task_df["Crew Readiness"] = 80  # Placeholder value
+        task_df["Season"] = task_df["Start"].dt.month.map(lambda m: "Winter" if m in [12,1,2] else "Summer")
+    return task_df
+
 def read_file(uploaded_file):
     filename = uploaded_file.name.lower()
     if filename.endswith(".csv"):
