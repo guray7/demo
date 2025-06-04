@@ -7,8 +7,8 @@ st.set_page_config(page_title="Shutdown Delay Comparator", layout="wide")
 
 st.title("📊 Shutdown Delay Comparative Analysis Panel")
 
-uploaded_file_1 = st.file_uploader("Upload first shutdown task CSV (baseline)", type=["csv"], key="file1")
-uploaded_file_2 = st.file_uploader("Upload second shutdown task CSV (actual)", type=["csv"], key="file2")
+uploaded_file_1 = st.file_uploader("Upload first shutdown task CSV (baseline)", type=["csv"], key="baseline_file")
+uploaded_file_2 = st.file_uploader("Upload second shutdown task CSV (actual)", type=["csv"], key="actual_file")
 
 if uploaded_file_1 and uploaded_file_2:
     df1 = pd.read_csv(uploaded_file_1)
