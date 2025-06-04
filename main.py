@@ -1,58 +1,66 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
-#import requests  # Uncomment if integrating with real AI API
 
-st.set_page_config(page_title="Shutdown AI Demo", layout="wide")
+st.set_page_config(page_title="Shutdown Delay Comparator", layout="wide")
 
-st.title("📊 Shutdown Delay Analysis Panel")
+st.title("📊 Shutdown Delay Comparative Analysis Panel")
 
-# File upload
-uploaded_file = st.file_uploader("Upload your shutdown task CSV file", type=["csv"])
+uploaded_file_1 = st.file_uploader("Upload first shutdown task CSV (baseline)", type=["csv"], key="file1")
+uploaded_file_2 = st.file_uploader("Upload second shutdown task CSV (actual)", type=["csv"], key="file2")
 
-if uploaded_file:
-    # Read CSV
-    df = pd.read_csv(uploaded_file)
+if uploaded_file_1 and uploaded_file_2:
+    df1 = pd.read_csv(uploaded_file_1)
+    df2 = pd.read_csv(uploaded_file_2)
 
-    # Preprocess for Gantt chart
-    df["Start"] = pd.to_datetime(df["Start"])
-    df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
+    df1["Start"] = pd.to_datetime(df1["Start"])
+    df1["End"] = df1["Start"] + pd.to_timedelta(df1["Duration"], unit="D")
+    df2["Start"] = pd.to_datetime(df2["Start"])
+    df2["End"] = df2["Start"] + pd.to_timedelta(df2["Duration"], unit="D")
 
-    # Show Gantt chart
-    st.subheader("Gantt Chart")
-    fig = px.timeline(df, x_start="Start", x_end="End", y="Task", color="Equipment")
+    st.subheader("📆 Gantt Chart - Baseline vs Actual")
+    df1["Version"] = "Baseline"
+    df2["Version"] = "Actual"
+    combined = pd.concat([df1, df2])
+
+    fig = px.timeline(combined, x_start="Start", x_end="End", y="Task", color="Version", title="Schedule Comparison")
     fig.update_yaxes(autorange="reversed")
     st.plotly_chart(fig, use_container_width=True)
 
-    # Generate JSON for AI
-    st.subheader("🔄 Data to be sent to AI")
-    json_data = df[["Task", "Equipment", "Start", "Duration", "Crew Readiness", "Previous Duration", "Season"]]
-    json_data = json_data.rename(columns={
-        "Crew Readiness": "crew_readiness",
-        "Previous Duration": "previous_duration",
-        "Season": "season"
+    st.subheader("🧠 AI Analysis Data Preparation")
+    # Delay calculation and combined view
+    comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
+    comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
+
+    ai_ready_data = comparison[[
+        "Task",
+        "Equipment_baseline",
+        "Duration_baseline",
+        "Duration_actual",
+        "Crew Readiness_baseline",
+        "Crew Readiness_actual",
+        "Delay",
+        "Season_actual"
+    ]].rename(columns={
+        "Equipment_baseline": "equipment",
+        "Duration_baseline": "planned_duration",
+        "Duration_actual": "actual_duration",
+        "Crew Readiness_baseline": "planned_crew_readiness",
+        "Crew Readiness_actual": "actual_crew_readiness",
+        "Season_actual": "season"
     })
-    records = json_data.to_dict(orient="records")
-    st.json(records)
 
-    # Simulate AI interaction
-    st.subheader("🤖 AI Interaction")
-    if st.button("Simulate AI Questions"):
-        for task in records:
-            st.markdown(f"### 🛠 Task: {task['Task']}")
-            st.markdown(f"**Q1:** Why is crew readiness only {task['crew_readiness']}%?")
-            st.markdown(f"**Q2:** Has this equipment ({task['Equipment']}) experienced delays in {task['season']} previously?")
+    st.json(ai_ready_data.to_dict(orient="records"))
+    st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
+
+    if st.button("🧠 Simulate AI Response"):
+        for _, row in ai_ready_data.iterrows():
+            st.markdown(f"### Task: {row['Task']}")
+            st.markdown(f"Delay: {row['Delay']} days")
+            st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
+            st.markdown(f"Planned Readiness: {row['planned_crew_readiness']}% → Actual: {row['actual_crew_readiness']}%")
+            st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row['season']}?")
             st.markdown("---")
-
-    # Optional: Send to real AI API
-    # if st.button("Send to AI"):
-    #     response = requests.post("https://your-ai-endpoint.com/analyze", json=records)
-    #     st.write(response.json())
-
-    # Optional: Download JSON
-    st.download_button("⬇️ Download JSON for AI", json.dumps(records, indent=4), file_name="shutdown_data.json")
-
 else:
-    st.info("Please upload a CSV file to begin.")
+    st.info("Please upload both baseline and actual shutdown CSV files to begin analysis.")
