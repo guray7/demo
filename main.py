@@ -2,66 +2,97 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
+import os
 
 st.set_page_config(page_title="Shutdown Delay Comparator", layout="wide")
 
-st.title("📊 Side-by-Side Gantt Chart for Shutdown Projects")
+st.title("📊 Side-by-Side Gantt Chart for Shutdown Projects (.csv & .xer)")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule", type=["csv"], key="baseline_file")
+    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule (.csv or .xer)", type=["csv", "xer"], key="baseline_file")
 with col2:
-    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule", type=["csv"], key="actual_file")
+    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv or .xer)", type=["csv", "xer"], key="actual_file")
+
+@st.cache_data
+def parse_xer(file):
+    from xerparser import XerParser
+    xer = XerParser(file)
+    df = pd.DataFrame(xer.activities)
+    df = df.rename(columns={
+        'task_name': 'Task',
+        'start_date': 'Start',
+        'end_date': 'End',
+        'duration': 'Duration',
+        'resource_name': 'Equipment',
+        'remaining_duration': 'Crew Readiness'  # Placeholder
+    })
+    df = df[["Task", "Start", "End", "Duration", "Equipment", "Crew Readiness"]].dropna()
+    df["Start"] = pd.to_datetime(df["Start"])
+    df["End"] = pd.to_datetime(df["End"])
+    df["Duration"] = (df["End"] - df["Start"]).dt.days
+    df["Season"] = df["Start"].dt.month.map(lambda m: "Winter" if m in [12,1,2] else "Summer")
+    return df
+
+@st.cache_data
+def read_file(uploaded_file):
+    filename = uploaded_file.name.lower()
+    if filename.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+        df["Start"] = pd.to_datetime(df["Start"])
+        df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
+    elif filename.endswith(".xer"):
+        df = parse_xer(uploaded_file)
+    else:
+        st.error("Unsupported file type")
+        return None
+    return df
 
 if uploaded_file_1 and uploaded_file_2:
-    df1 = pd.read_csv(uploaded_file_1)
-    df2 = pd.read_csv(uploaded_file_2)
+    df1 = read_file(uploaded_file_1)
+    df2 = read_file(uploaded_file_2)
 
-    df1["Start"] = pd.to_datetime(df1["Start"])
-    df1["End"] = df1["Start"] + pd.to_timedelta(df1["Duration"], unit="D")
-    df2["Start"] = pd.to_datetime(df2["Start"])
-    df2["End"] = df2["Start"] + pd.to_timedelta(df2["Duration"], unit="D")
+    if df1 is not None and df2 is not None:
+        with col1:
+            st.subheader("📅 Baseline Gantt Chart")
+            st.plotly_chart(px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="baseline_chart")
 
-    with col1:
-        st.subheader("📅 Baseline Gantt Chart")
-        st.plotly_chart(px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="baseline_chart")
+        with col2:
+            st.subheader("📅 Actual Gantt Chart")
+            st.plotly_chart(px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="actual_chart")
 
-    with col2:
-        st.subheader("📅 Actual Gantt Chart")
-        st.plotly_chart(px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment").update_yaxes(autorange="reversed"), use_container_width=True, key="actual_chart")
+        st.subheader("🧠 AI Analysis Data Preparation")
+        comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
+        comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
 
-    st.subheader("🧠 AI Analysis Data Preparation")
-    comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
-    comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
+        ai_ready_data = comparison[[
+            "Task",
+            "Equipment_baseline",
+            "Duration_baseline",
+            "Duration_actual",
+            "Crew Readiness_baseline",
+            "Crew Readiness_actual",
+            "Delay",
+            "Season_actual"
+        ]].rename(columns={
+            "Equipment_baseline": "equipment",
+            "Duration_baseline": "planned_duration",
+            "Duration_actual": "actual_duration",
+            "Crew Readiness_baseline": "planned_crew_readiness",
+            "Crew Readiness_actual": "actual_crew_readiness",
+            "Season_actual": "season"
+        })
 
-    ai_ready_data = comparison[[
-        "Task",
-        "Equipment_baseline",
-        "Duration_baseline",
-        "Duration_actual",
-        "Crew Readiness_baseline",
-        "Crew Readiness_actual",
-        "Delay",
-        "Season_actual"
-    ]].rename(columns={
-        "Equipment_baseline": "equipment",
-        "Duration_baseline": "planned_duration",
-        "Duration_actual": "actual_duration",
-        "Crew Readiness_baseline": "planned_crew_readiness",
-        "Crew Readiness_actual": "actual_crew_readiness",
-        "Season_actual": "season"
-    })
+        st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
 
-    st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
-
-    if st.button("🧠 Simulate AI Response"):
-        for _, row in ai_ready_data.iterrows():
-            st.markdown(f"### Task: {row['Task']}")
-            st.markdown(f"Delay: {row['Delay']} days")
-            st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
-            st.markdown(f"Planned Readiness: {row['planned_crew_readiness']}% → Actual: {row['actual_crew_readiness']}%")
-            st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row['season']}?")
-            st.markdown("---")
+        if st.button("🧠 Simulate AI Response"):
+            for _, row in ai_ready_data.iterrows():
+                st.markdown(f"### Task: {row['Task']}")
+                st.markdown(f"Delay: {row['Delay']} days")
+                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
+                st.markdown(f"Planned Readiness: {row['planned_crew_readiness']}% → Actual: {row['actual_crew_readiness']}%")
+                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row['season']}?")
+                st.markdown("---")
 else:
-    st.info("Please upload both baseline and actual shutdown CSV files to begin analysis.")
+    st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
