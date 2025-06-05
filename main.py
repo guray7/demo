@@ -84,25 +84,22 @@ def read_file(uploaded_file):
         df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
         return df, None
     elif filename.endswith(".xlsx"):
-        try:
-            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-            df = xl.parse("Tasks")
-            df["Start"] = pd.to_datetime(df["Start"])
-            df["End"] = pd.to_datetime(df["End"])
-            pred_df = None
-            if "Dependencies" in xl.sheet_names:
-                pred_df = xl.parse("Dependencies")
-                pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
-                pred_df["Successor"] = pred_df["Successor"].astype(str)
-            return df, pred_df
-        except ImportError:
-            st.error("To read .xlsx files, please install openpyxl:\n`pip install openpyxl`")
-            return None, None
+        xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+        df = xl.parse("Tasks")
+        df["Start"] = pd.to_datetime(df["Start"])
+        df["End"] = pd.to_datetime(df["End"])
+        pred_df = None
+        if "Dependencies" in xl.sheet_names:
+            pred_df = xl.parse("Dependencies")
+            pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
+            pred_df["Successor"] = pred_df["Successor"].astype(str)
+        return df, pred_df
     elif filename.endswith(".xer"):
         return parse_xer(uploaded_file)
     else:
         st.error("Unsupported file type")
         return None, None
+
 
 def draw_dependencies(fig, task_df, pred_df):
     if pred_df is None:
