@@ -94,6 +94,25 @@ def read_file(uploaded_file):
         def slot_to_datetime(slot):
             match = re.match(r"(\d+)\s*(day|night)?", slot.lower())
             if match:
+                day = int(match.group(1))
+                shift = match.group(2)
+                base = pd.to_datetime("2022-01-01")  # Başlangıç tarihi sabit
+                hour_offset = 8 if shift == "day" else 20 if shift == "night" else 0
+                start = base + pd.Timedelta(days=day - 1, hours=hour_offset)
+                end = start + pd.Timedelta(hours=8)
+                return start, end
+            return None, None
+
+        df_long[["Start", "End"]] = df_long["Slot"].apply(lambda x: pd.Series(slot_to_datetime(x)))
+        df_result = df_long[["Task", "Start", "End"]].dropna()
+        df_result["Duration"] = (df_result["End"] - df_result["Start"]).dt.total_seconds() / 3600
+
+        return df_result, None
+
+    except Exception as e:
+        st.error(f"❌ Error processing matrix-style file: {e}")
+        return None, None
+
 
 
 
