@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 import datetime
 
+
+st.cache_data.clear()
+
 st.set_page_config(page_title="Gantt Chart Generator", layout="wide")
 st.title("📅 Shutdown Gantt Chaaaaaaaart Demo")
 
