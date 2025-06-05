@@ -59,6 +59,15 @@ def parse_xer(file):
     if wbs_df is not None:
         wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
         task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
+        
+    if 'Predecessor' not in pred_df.columns:
+    pred_df = pred_df.rename(columns={
+        'task_id': 'Successor',
+        'pred_task_id': 'Predecessor',
+        'pred_type': 'Type',
+        'lag_hr_cnt': 'Lag'
+    })
+    
 
     return task_df, pred_df
 
