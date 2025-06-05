@@ -6,20 +6,17 @@ import json
 from datetime import datetime
 
 st.set_page_config(page_title="Shutdown Delay Comparator (.csv & .xer)", layout="wide")
-st.title("📊 Shutdown Delay Analysis Panel (.csv & .xer)")
+st.title("📊 Shutdown Delay Analysis Panel (.csv, .xlsx, .xer)")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule (.csv, .xlsx or .xer)", type=["csv", "xlsx", "xer"], key="baseline_file")
+    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule", type=["csv", "xlsx", "xer"], key="baseline_file")
 with col2:
-    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv, .xlsx or .xer)", type=["csv", "xlsx", "xer"], key="actual_file")
+    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule", type=["csv", "xlsx", "xer"], key="actual_file")
 
 def extract_table_safe(lines, table_name):
-    table_rows = []
-    capturing = False
-    headers = []
-
+    table_rows, capturing, headers = [], False, []
     for line in lines:
         if line.startswith("%T") and table_name in line:
             capturing = True
@@ -27,14 +24,10 @@ def extract_table_safe(lines, table_name):
             headers = line.strip().split("\t")[1:]
         elif capturing and line.startswith("%R"):
             row = line.strip().split("\t")[1:]
-            if len(row) < len(headers):
-                row += [None] * (len(headers) - len(row))
-            elif len(row) > len(headers):
-                row = row[:len(headers)]
-            table_rows.append(row)
+            row += [None] * (len(headers) - len(row))
+            table_rows.append(row[:len(headers)])
         elif capturing and not line.startswith("%R") and not line.startswith("%F"):
             break
-
     return pd.DataFrame(table_rows, columns=headers) if table_rows else None
 
 def parse_xer(file):
@@ -42,15 +35,9 @@ def parse_xer(file):
     task_df = extract_table_safe(lines, "TASK")
     wbs_df = extract_table_safe(lines, "PROJWBS")
     pred_df = extract_table_safe(lines, "TASKPRED")
-
     task_df = task_df.rename(columns={
-        'task_id': 'Task ID',
-        'task_name': 'Task',
-        'early_start_date': 'Start',
-        'early_end_date': 'End',
-        'orig_dur_hr_cnt': 'Duration',
-        'wbs_id': 'WBS'
-    })
+        'task_id': 'Task ID', 'task_name': 'Task', 'early_start_date': 'Start',
+        'early_end_date': 'End', 'orig_dur_hr_cnt': 'Duration', 'wbs_id': 'WBS'})
     task_df.dropna(subset=["Task ID", "Task"], inplace=True)
     task_df["Task ID"] = task_df["Task ID"].astype(str)
     task_df["Task"] = task_df["Task"].str.strip()
@@ -58,39 +45,35 @@ def parse_xer(file):
     task_df['End'] = pd.to_datetime(task_df['End'], errors='coerce')
     task_df['Duration'] = (task_df['End'] - task_df['Start']).dt.days
     task_df.dropna(subset=["Start", "End"], inplace=True)
-
     if wbs_df is not None:
         wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
         task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
-
     if pred_df is not None:
         if 'Predecessor' not in pred_df.columns:
             pred_df = pred_df.rename(columns={
-                'task_id': 'Successor',
-                'pred_task_id': 'Predecessor',
-                'pred_type': 'Type',
-                'lag_hr_cnt': 'Lag'
-            })
+                'task_id': 'Successor', 'pred_task_id': 'Predecessor',
+                'pred_type': 'Type', 'lag_hr_cnt': 'Lag'})
         pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
         pred_df["Successor"] = pred_df["Successor"].astype(str)
-
     return task_df, pred_df
 
 def read_file(uploaded_file):
     filename = uploaded_file.name.lower()
     if filename.endswith(".csv"):
         df = pd.read_csv(uploaded_file)
-        df["Start"] = pd.to_datetime(df["Start"])
+        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
         df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
         return df, None
     elif filename.endswith(".xlsx"):
         xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-        df = xl.parse("Tasks")
-        df["Start"] = pd.to_datetime(df["Start"])
-        df["End"] = pd.to_datetime(df["End"])
+        task_sheet = next((s for s in xl.sheet_names if "task" in s.lower()), xl.sheet_names[0])
+        df = xl.parse(task_sheet)
+        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
+        df["End"] = pd.to_datetime(df["End"], errors='coerce')
         pred_df = None
-        if "Dependencies" in xl.sheet_names:
-            pred_df = xl.parse("Dependencies")
+        dep_sheet = next((s for s in xl.sheet_names if "depend" in s.lower()), None)
+        if dep_sheet:
+            pred_df = xl.parse(dep_sheet)
             pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
             pred_df["Successor"] = pred_df["Successor"].astype(str)
         return df, pred_df
@@ -100,7 +83,6 @@ def read_file(uploaded_file):
         st.error("Unsupported file type")
         return None, None
 
-
 def draw_dependencies(fig, task_df, pred_df):
     if pred_df is None:
         return fig
@@ -108,20 +90,11 @@ def draw_dependencies(fig, task_df, pred_df):
         pred = task_df[task_df['Task ID'] == link['Predecessor']]
         succ = task_df[task_df['Task ID'] == link['Successor']]
         if not pred.empty and not succ.empty:
-            x0 = pred.iloc[0]['End']
-            x1 = succ.iloc[0]['Start']
-            y0 = pred.iloc[0]['Task']
+            x0, x1 = pred.iloc[0]['End'], succ.iloc[0]['Start']
             y1 = succ.iloc[0]['Task']
-            fig.add_annotation(
-                x=x1, y=y1,
-                ax=x0, ay=y1,
-                showarrow=True,
-                arrowhead=3,
-                arrowsize=1,
-                arrowwidth=1,
-                arrowcolor='red',
-                opacity=0.8
-            )
+            fig.add_annotation(x=x1, y=y1, ax=x0, ay=y1, showarrow=True,
+                               arrowhead=3, arrowsize=1, arrowwidth=1,
+                               arrowcolor='red', opacity=0.8)
     return fig
 
 if uploaded_file_1 and uploaded_file_2:
@@ -130,7 +103,6 @@ if uploaded_file_1 and uploaded_file_2:
     else:
         df1, pred1 = read_file(uploaded_file_1)
         df2, pred2 = read_file(uploaded_file_2)
-
         if df1 is not None and df2 is not None:
             with col1:
                 st.subheader("📅 Baseline Gantt Chart")
@@ -138,36 +110,25 @@ if uploaded_file_1 and uploaded_file_2:
                 fig1.update_yaxes(autorange="reversed")
                 fig1 = draw_dependencies(fig1, df1, pred1)
                 st.plotly_chart(fig1, use_container_width=True)
-
             with col2:
                 st.subheader("📅 Actual Gantt Chart")
                 fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
                 fig2.update_yaxes(autorange="reversed")
                 fig2 = draw_dependencies(fig2, df2, pred2)
                 st.plotly_chart(fig2, use_container_width=True)
-
-            st.subheader("🧠 AI Analysis Data Preparation")
+            st.subheader("🧐 AI Analysis Data Preparation")
             comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
             comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
-
             columns = {
-                "Task": "Task",
-                "Equipment_baseline": "equipment",
-                "WBS Name_baseline": "equipment",
-                "Duration_baseline": "planned_duration",
-                "Duration_actual": "actual_duration",
-                "Crew Readiness_baseline": "planned_crew_readiness",
-                "Crew Readiness_actual": "actual_crew_readiness",
-                "Delay": "Delay",
-                "Season_actual": "season",
-                "Duration_actual": "season"
-            }
+                "Task": "Task", "Equipment_baseline": "equipment", "WBS Name_baseline": "equipment",
+                "Duration_baseline": "planned_duration", "Duration_actual": "actual_duration",
+                "Crew Readiness_baseline": "planned_crew_readiness", "Crew Readiness_actual": "actual_crew_readiness",
+                "Delay": "Delay", "Season_actual": "season", "Duration_actual": "season"}
             available = [col for col in columns if col in comparison.columns]
             ai_ready_data = comparison[available]
             ai_ready_data.columns = [columns[col] for col in available]
-
-            st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
-
+            st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4),
+                               file_name="ai_shutdown_comparison.json")
             if st.button("🧠 Simulate AI Response"):
                 for _, row in ai_ready_data.iterrows():
                     st.markdown(f"### Task: {row['Task']}")
@@ -177,4 +138,4 @@ if uploaded_file_1 and uploaded_file_2:
                     st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
                     st.markdown("---")
 else:
-    st.info("Please upload both baseline and actual shutdown CSV, XLSX or XER files to begin analysis.")
+    st.info("Please upload both baseline and actual shutdown files to begin analysis.")
