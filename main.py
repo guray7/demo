@@ -11,9 +11,9 @@ st.title("📊 Shutdown Delay Analysis Panel (.csv & .xer)")
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule (.csv or .xer)", type=["csv", "xer"], key="baseline_file")
+    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule (.csv, .xlsx or .xer)", type=["csv", "xlsx", "xer"], key="baseline_file")
 with col2:
-    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv or .xer)", type=["csv", "xer"], key="actual_file")
+    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv, .xlsx or .xer)", type=["csv", "xlsx", "xer"], key="actual_file")
 
 def extract_table_safe(lines, table_name):
     table_rows = []
@@ -80,6 +80,11 @@ def read_file(uploaded_file):
     filename = uploaded_file.name.lower()
     if filename.endswith(".csv"):
         df = pd.read_csv(uploaded_file)
+        df["Start"] = pd.to_datetime(df["Start"])
+        df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
+        return df, None
+    elif filename.endswith(".xlsx"):
+        df = pd.read_excel(uploaded_file)
         df["Start"] = pd.to_datetime(df["Start"])
         df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
         return df, None
@@ -165,4 +170,4 @@ if uploaded_file_1 and uploaded_file_2:
                     st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
                     st.markdown("---")
 else:
-    st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
+    st.info("Please upload both baseline and actual shutdown CSV, XLSX or XER files to begin analysis.")
