@@ -58,73 +58,55 @@ def parse_xer(file):
     return task_df, pred_df
 
 def read_file(uploaded_file):
+    import re
     filename = uploaded_file.name.lower()
     df = None
-    pred_df = None
 
     try:
         if filename.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
-
         elif filename.endswith(".xlsx"):
-            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-            task_sheet = next((s for s in xl.sheet_names if "task" in s.lower()), xl.sheet_names[0])
-            df = xl.parse(task_sheet)
-
-            dep_sheet = next((s for s in xl.sheet_names if "depend" in s.lower()), None)
-            if dep_sheet:
-                pred_df = xl.parse(dep_sheet)
-                pred_df.columns = [str(col).strip() for col in pred_df.columns]
-                if "Predecessor" not in pred_df.columns or "Successor" not in pred_df.columns:
-                    pred_df.rename(columns=lambda x: str(x).strip().capitalize(), inplace=True)
-                    pred_df.rename(columns={"Task_id": "Successor", "Pred_task_id": "Predecessor"}, inplace=True)
-
-        elif filename.endswith(".xer"):
-            return parse_xer(uploaded_file)
-
-        if df is None:
-            st.warning("⚠️ Couldn't read any usable data from this file.")
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+        else:
+            st.warning("Unsupported file format.")
             return None, None
 
-        df.columns = [str(col).strip() for col in df.columns]
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Görev adını içeren ilk uygun sütunu bul
+        task_col = next((col for col in df.columns if "tie-in" in col.lower() or "task" in col.lower()), None)
+        if not task_col:
+            df.insert(0, "Task", [f"Task {i+1}" for i in range(len(df))])
+        else:
+            df.rename(columns={task_col: "Task"}, inplace=True)
 
-        # Otomatik eşleştirme
-        col_map = {
-            "start": next((c for c in df.columns if "start" in c.lower()), None),
-            "end": next((c for c in df.columns if "end" in c.lower() or "finish" in c.lower()), None),  # bu satırı güncelle
-            "task": next((c for c in df.columns if "task" in c.lower() or "activity" in c.lower()), None),
-            "duration": next((c for c in df.columns if "duration" in c.lower()), None),
-            "task id": next((c for c in df.columns if "task id" in c.lower() or "id" in c.lower()), None)
-        }
+        static_cols = ["Task"]
+        other_static = [col for col in df.columns if col not in static_cols and not re.match(r"\d+", col)]
+        static_cols += other_static
 
+        # Tarih sütunları: "1 day", "1 night", vb.
+        time_columns = [col for col in df.columns if col not in static_cols]
 
-        # Zorunlu olanlar: Start, End, Task
-        if not col_map["start"] or not col_map["end"] or not col_map["task"]:
-            st.warning("⚠️ Start, End, or Task column missing. Minimal rendering will be used.")
+        df_long = df.melt(id_vars=static_cols, value_vars=time_columns, var_name="Slot", value_name="Value")
+        df_long = df_long[df_long["Value"].notna() & (df_long["Value"].astype(str).str.strip() != "")]
+
+        # Tarihleri oluştur
+        def slot_to_datetime(slot):
+            match = re.match(r"(\d+)\s*(day|night)?", slot.lower())
+            if match:
+                day = int(match.group(1))
+                shift = match.group(2)
+                base = pd.to_datetime("2022-01-01")  # senin istediğin sabit bir tarih başlangıcı
+                hour_offset = 8 if shift == "day" else 20 if shift == "night" else 0
+                start = base + pd.Timedelta(days=day - 1, hours=hour_offset)
+                end = start + pd.Timedelta(hours=8)
+                return start, end
             return None, None
 
-        # Yeniden adlandır
-        df.rename(columns={
-            col_map["start"]: "Start",
-            col_map["end"]: "End",
-            col_map["task"]: "Task",
-            col_map["duration"]: "Duration" if col_map["duration"] else None,
-            col_map["task id"]: "Task ID" if col_map["task id"] else None
-        }, inplace=True)
+        df_long[["Start", "End"]] = df_long["Slot"].apply(lambda x: pd.Series(slot_to_datetime(x)))
+        df_result = df_long[["Task", "Start", "End"]].dropna()
+        df_re_
 
-        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
-        df["End"] = pd.to_datetime(df["End"], errors='coerce')
-
-        if "Duration" not in df.columns or df["Duration"].isnull().all():
-            df["Duration"] = (df["End"] - df["Start"]).dt.days
-
-        df.dropna(subset=["Start", "End", "Task"], inplace=True)
-
-        return df, pred_df
-
-    except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
-        return None, None
 
 
 
