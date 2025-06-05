@@ -4,7 +4,7 @@ import plotly.express as px
 import datetime
 
 st.set_page_config(page_title="Gantt Chart Generator", layout="wide")
-st.title("📅 Shutdown Gantt Chart Demo")
+st.title("📅 Shutdown Gantt Chaaaaaaaart Demo")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
