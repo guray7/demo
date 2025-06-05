@@ -91,11 +91,12 @@ def read_file(uploaded_file):
         # Otomatik eşleştirme
         col_map = {
             "start": next((c for c in df.columns if "start" in c.lower()), None),
-            "end": next((c for c in df.columns if "end" in c.lower()), None),
-            "task": next((c for c in df.columns if "task" in c.lower()), None),
+            "end": next((c for c in df.columns if "end" in c.lower() or "finish" in c.lower()), None),  # bu satırı güncelle
+            "task": next((c for c in df.columns if "task" in c.lower() or "activity" in c.lower()), None),
             "duration": next((c for c in df.columns if "duration" in c.lower()), None),
             "task id": next((c for c in df.columns if "task id" in c.lower() or "id" in c.lower()), None)
         }
+
 
         # Zorunlu olanlar: Start, End, Task
         if not col_map["start"] or not col_map["end"] or not col_map["task"]:
