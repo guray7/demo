@@ -59,15 +59,14 @@ def parse_xer(file):
     if wbs_df is not None:
         wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
         task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
-        
-    if 'Predecessor' not in pred_df.columns:
+
+    if pred_df is not None and 'Predecessor' not in pred_df.columns:
         pred_df = pred_df.rename(columns={
-        'task_id': 'Successor',
-        'pred_task_id': 'Predecessor',
-        'pred_type': 'Type',
-        'lag_hr_cnt': 'Lag'
-    })
-    
+            'task_id': 'Successor',
+            'pred_task_id': 'Predecessor',
+            'pred_type': 'Type',
+            'lag_hr_cnt': 'Lag'
+        })
 
     return task_df, pred_df
 
@@ -130,15 +129,20 @@ if uploaded_file_1 and uploaded_file_2:
         comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
         comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
 
+        season_col = "Season_actual" if "Season_actual" in comparison.columns else "Duration_actual"
+        equipment_col = "Equipment_baseline" if "Equipment_baseline" in comparison.columns else "WBS Name_baseline"
+        planned_crew_col = "Crew Readiness_baseline" if "Crew Readiness_baseline" in comparison.columns else "Duration_baseline"
+        actual_crew_col = "Crew Readiness_actual" if "Crew Readiness_actual" in comparison.columns else "Duration_actual"
+
         ai_ready_data = comparison[[
             "Task",
-            "Equipment_baseline" if "Equipment_baseline" in comparison.columns else "WBS Name_baseline",
+            equipment_col,
             "Duration_baseline",
             "Duration_actual",
-            "Crew Readiness_baseline" if "Crew Readiness_baseline" in comparison.columns else "Duration_baseline",
-            "Crew Readiness_actual" if "Crew Readiness_actual" in comparison.columns else "Duration_actual",
+            planned_crew_col,
+            actual_crew_col,
             "Delay",
-            "Season_actual" if "Season_actual" in comparison.columns else "Duration_actual"
+            season_col
         ]]
 
         ai_ready_data.columns = ["Task", "equipment", "planned_duration", "actual_duration", "planned_crew_readiness", "actual_crew_readiness", "Delay", "season"]
