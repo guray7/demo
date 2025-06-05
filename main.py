@@ -59,29 +59,62 @@ def parse_xer(file):
 
 def read_file(uploaded_file):
     filename = uploaded_file.name.lower()
+    df = None
+    pred_df = None
+
     if filename.endswith(".csv"):
         df = pd.read_csv(uploaded_file)
-        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
-        df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
-        return df, None
+
     elif filename.endswith(".xlsx"):
         xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+        # Sayfa adlarında "task" geçen ilk sayfayı bul
         task_sheet = next((s for s in xl.sheet_names if "task" in s.lower()), xl.sheet_names[0])
         df = xl.parse(task_sheet)
-        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
-        df["End"] = pd.to_datetime(df["End"], errors='coerce')
-        pred_df = None
+
+        # Sayfa adlarında "depend" geçen varsa onu bağımlılık olarak al
         dep_sheet = next((s for s in xl.sheet_names if "depend" in s.lower()), None)
         if dep_sheet:
             pred_df = xl.parse(dep_sheet)
-            pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
-            pred_df["Successor"] = pred_df["Successor"].astype(str)
-        return df, pred_df
+            pred_df.columns = [col.strip() for col in pred_df.columns]
+            if "Predecessor" not in pred_df.columns or "Successor" not in pred_df.columns:
+                pred_df.rename(columns=lambda x: x.strip().capitalize(), inplace=True)
+                pred_df.rename(columns={"Task_id": "Successor", "Pred_task_id": "Predecessor"}, inplace=True)
+
     elif filename.endswith(".xer"):
         return parse_xer(uploaded_file)
-    else:
-        st.error("Unsupported file type")
-        return None, None
+
+    if df is not None:
+        df.columns = [col.strip() for col in df.columns]
+        # Otomatik kolon eşlemesi
+        col_map = {
+            "start": next((col for col in df.columns if "start" in col.lower()), None),
+            "end": next((col for col in df.columns if "end" in col.lower()), None),
+            "duration": next((col for col in df.columns if "duration" in col.lower()), None),
+            "task": next((col for col in df.columns if "task" in col.lower()), None),
+            "task id": next((col for col in df.columns if "id" in col.lower() and "task" in col.lower()), None)
+        }
+
+        required = ["start", "end", "task"]
+        for key in required:
+            if col_map[key] is None:
+                st.error(f"❌ Column related to '{key}' not found in uploaded file.")
+                return None, None
+
+        df.rename(columns={
+            col_map["start"]: "Start",
+            col_map["end"]: "End",
+            col_map["duration"]: "Duration" if col_map["duration"] else "Duration",
+            col_map["task"]: "Task",
+            col_map["task id"]: "Task ID" if col_map["task id"] else "Task ID"
+        }, inplace=True)
+
+        df["Start"] = pd.to_datetime(df["Start"], errors='coerce')
+        df["End"] = pd.to_datetime(df["End"], errors='coerce')
+        df["Duration"] = (df["End"] - df["Start"]).dt.days
+        df.dropna(subset=["Start", "End", "Task"], inplace=True)
+
+    return df, pred_df
+
 
 def draw_dependencies(fig, task_df, pred_df):
     if pred_df is None:
