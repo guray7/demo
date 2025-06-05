@@ -132,16 +132,26 @@ if uploaded_file_1 and uploaded_file_2:
     if df1 is not None and df2 is not None:
         with col1:
             st.subheader("🗕️ Baseline Gantt Chart")
-            fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
+            color_col = "Equipment" if "Equipment" in df1.columns else ("WBS Name" if "WBS Name" in df1.columns else None)
+            if color_col:
+                fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color=color_col)
+            else:
+                fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task")
             fig1.update_yaxes(autorange="reversed")
             fig1 = draw_dependencies(fig1, df1, pred1)
             st.plotly_chart(fig1, use_container_width=True)
+
         with col2:
             st.subheader("🗕️ Actual Gantt Chart")
-            fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
+            color_col2 = "Equipment" if "Equipment" in df2.columns else ("WBS Name" if "WBS Name" in df2.columns else None)
+            if color_col2:
+                fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color=color_col2)
+            else:
+                fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task")
             fig2.update_yaxes(autorange="reversed")
             fig2 = draw_dependencies(fig2, df2, pred2)
             st.plotly_chart(fig2, use_container_width=True)
+
         st.subheader("🧐 AI Analysis Data Preparation")
         comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
         comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
