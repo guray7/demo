@@ -84,10 +84,20 @@ def read_file(uploaded_file):
         df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
         return df, None
     elif filename.endswith(".xlsx"):
-        df = pd.read_excel(uploaded_file)
-        df["Start"] = pd.to_datetime(df["Start"])
-        df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
-        return df, None
+        try:
+            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+            df = xl.parse("Tasks")
+            df["Start"] = pd.to_datetime(df["Start"])
+            df["End"] = pd.to_datetime(df["End"])
+            pred_df = None
+            if "Dependencies" in xl.sheet_names:
+                pred_df = xl.parse("Dependencies")
+                pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
+                pred_df["Successor"] = pred_df["Successor"].astype(str)
+            return df, pred_df
+        except ImportError:
+            st.error("To read .xlsx files, please install openpyxl:\n`pip install openpyxl`")
+            return None, None
     elif filename.endswith(".xer"):
         return parse_xer(uploaded_file)
     else:
