@@ -62,30 +62,32 @@ def read_file(uploaded_file):
     df = None
     pred_df = None
 
-    if filename.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+    try:
+        if filename.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
 
-    elif filename.endswith(".xlsx"):
-        xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-        # Sayfa adlarında "task" geçen ilk sayfayı bul
-        task_sheet = next((s for s in xl.sheet_names if "task" in s.lower()), xl.sheet_names[0])
-        df = xl.parse(task_sheet)
+        elif filename.endswith(".xlsx"):
+            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+            task_sheet = next((s for s in xl.sheet_names if "task" in s.lower()), xl.sheet_names[0])
+            df = xl.parse(task_sheet)
 
-        # Sayfa adlarında "depend" geçen varsa onu bağımlılık olarak al
-        dep_sheet = next((s for s in xl.sheet_names if "depend" in s.lower()), None)
-        if dep_sheet:
-            pred_df = xl.parse(dep_sheet)
-            pred_df.columns = [col.strip() for col in pred_df.columns]
-            if "Predecessor" not in pred_df.columns or "Successor" not in pred_df.columns:
-                pred_df.rename(columns=lambda x: x.strip().capitalize(), inplace=True)
-                pred_df.rename(columns={"Task_id": "Successor", "Pred_task_id": "Predecessor"}, inplace=True)
+            dep_sheet = next((s for s in xl.sheet_names if "depend" in s.lower()), None)
+            if dep_sheet:
+                pred_df = xl.parse(dep_sheet)
+                pred_df.columns = [col.strip() for col in pred_df.columns]
+                if "Predecessor" not in pred_df.columns or "Successor" not in pred_df.columns:
+                    pred_df.rename(columns=lambda x: x.strip().capitalize(), inplace=True)
+                    pred_df.rename(columns={"Task_id": "Successor", "Pred_task_id": "Predecessor"}, inplace=True)
 
-    elif filename.endswith(".xer"):
-        return parse_xer(uploaded_file)
+        elif filename.endswith(".xer"):
+            return parse_xer(uploaded_file)
 
-    if df is not None:
+        if df is None:
+            st.error("❌ Failed to read the file. Make sure it's a valid CSV/XLSX/XER file.")
+            return None, None
+
         df.columns = [col.strip() for col in df.columns]
-        # Otomatik kolon eşlemesi
+
         col_map = {
             "start": next((col for col in df.columns if "start" in col.lower()), None),
             "end": next((col for col in df.columns if "end" in col.lower()), None),
@@ -113,7 +115,12 @@ def read_file(uploaded_file):
         df["Duration"] = (df["End"] - df["Start"]).dt.days
         df.dropna(subset=["Start", "End", "Task"], inplace=True)
 
-    return df, pred_df
+        return df, pred_df
+
+    except Exception as e:
+        st.error(f"❌ Error processing file: {str(e)}")
+        return None, None
+
 
 
 def draw_dependencies(fig, task_df, pred_df):
