@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import json
 from datetime import datetime
+import re
 
 st.set_page_config(page_title="Shutdown Delay Comparator (.csv & .xer)", layout="wide")
 st.title("📊 Shutdown Delay Analysis Panel (.csv, .xlsx, .xer)")
@@ -58,7 +59,6 @@ def parse_xer(file):
     return task_df, pred_df
 
 def read_file(uploaded_file):
-    import re
     filename = uploaded_file.name.lower()
     df = None
 
@@ -67,13 +67,14 @@ def read_file(uploaded_file):
             df = pd.read_csv(uploaded_file)
         elif filename.endswith(".xlsx"):
             df = pd.read_excel(uploaded_file, engine="openpyxl")
+        elif filename.endswith(".xer"):
+            return parse_xer(uploaded_file)
         else:
             st.warning("Unsupported file format.")
             return None, None
 
         df.columns = [str(c).strip() for c in df.columns]
 
-        # Görev adı olarak alınacak ilk sütunu bul
         task_col = next((col for col in df.columns if "tie-in" in col.lower() or "task" in col.lower()), None)
         if not task_col:
             df.insert(0, "Task", [f"Task {i+1}" for i in range(len(df))])
@@ -84,19 +85,17 @@ def read_file(uploaded_file):
         other_static = [col for col in df.columns if col not in static_cols and not re.match(r"\d+", col)]
         static_cols += other_static
 
-        # Günlük zaman sütunlarını al (örn. '1 day', '2 night' vs)
         time_columns = [col for col in df.columns if col not in static_cols]
 
         df_long = df.melt(id_vars=static_cols, value_vars=time_columns, var_name="Slot", value_name="Value")
         df_long = df_long[df_long["Value"].notna() & (df_long["Value"].astype(str).str.strip() != "")]
 
-        # Slot'tan zaman aralığı üret
         def slot_to_datetime(slot):
             match = re.match(r"(\d+)\s*(day|night)?", slot.lower())
             if match:
                 day = int(match.group(1))
                 shift = match.group(2)
-                base = pd.to_datetime("2022-01-01")  # Başlangıç tarihi sabit
+                base = pd.to_datetime("2022-01-01")
                 hour_offset = 8 if shift == "day" else 20 if shift == "night" else 0
                 start = base + pd.Timedelta(days=day - 1, hours=hour_offset)
                 end = start + pd.Timedelta(hours=8)
@@ -113,12 +112,6 @@ def read_file(uploaded_file):
         st.error(f"❌ Error processing matrix-style file: {e}")
         return None, None
 
-
-
-
-
-
-
 def draw_dependencies(fig, task_df, pred_df):
     if pred_df is None:
         return fig
@@ -134,41 +127,41 @@ def draw_dependencies(fig, task_df, pred_df):
     return fig
 
 if uploaded_file_1 and uploaded_file_2:
-        df1, pred1 = read_file(uploaded_file_1)
-        df2, pred2 = read_file(uploaded_file_2)
-        if df1 is not None and df2 is not None:
-            with col1:
-                st.subheader("📅 Baseline Gantt Chart")
-                fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
-                fig1.update_yaxes(autorange="reversed")
-                fig1 = draw_dependencies(fig1, df1, pred1)
-                st.plotly_chart(fig1, use_container_width=True)
-            with col2:
-                st.subheader("📅 Actual Gantt Chart")
-                fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
-                fig2.update_yaxes(autorange="reversed")
-                fig2 = draw_dependencies(fig2, df2, pred2)
-                st.plotly_chart(fig2, use_container_width=True)
-            st.subheader("🧐 AI Analysis Data Preparation")
-            comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
-            comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
-            columns = {
-                "Task": "Task", "Equipment_baseline": "equipment", "WBS Name_baseline": "equipment",
-                "Duration_baseline": "planned_duration", "Duration_actual": "actual_duration",
-                "Crew Readiness_baseline": "planned_crew_readiness", "Crew Readiness_actual": "actual_crew_readiness",
-                "Delay": "Delay", "Season_actual": "season", "Duration_actual": "season"}
-            available = [col for col in columns if col in comparison.columns]
-            ai_ready_data = comparison[available]
-            ai_ready_data.columns = [columns[col] for col in available]
-            st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4),
-                               file_name="ai_shutdown_comparison.json")
-            if st.button("🧠 Simulate AI Response"):
-                for _, row in ai_ready_data.iterrows():
-                    st.markdown(f"### Task: {row['Task']}")
-                    st.markdown(f"Delay: {row['Delay']} days")
-                    st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
-                    st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
-                    st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
-                    st.markdown("---")
+    df1, pred1 = read_file(uploaded_file_1)
+    df2, pred2 = read_file(uploaded_file_2)
+    if df1 is not None and df2 is not None:
+        with col1:
+            st.subheader("🗕️ Baseline Gantt Chart")
+            fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
+            fig1.update_yaxes(autorange="reversed")
+            fig1 = draw_dependencies(fig1, df1, pred1)
+            st.plotly_chart(fig1, use_container_width=True)
+        with col2:
+            st.subheader("🗕️ Actual Gantt Chart")
+            fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
+            fig2.update_yaxes(autorange="reversed")
+            fig2 = draw_dependencies(fig2, df2, pred2)
+            st.plotly_chart(fig2, use_container_width=True)
+        st.subheader("🧐 AI Analysis Data Preparation")
+        comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
+        comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
+        columns = {
+            "Task": "Task", "Equipment_baseline": "equipment", "WBS Name_baseline": "equipment",
+            "Duration_baseline": "planned_duration", "Duration_actual": "actual_duration",
+            "Crew Readiness_baseline": "planned_crew_readiness", "Crew Readiness_actual": "actual_crew_readiness",
+            "Delay": "Delay", "Season_actual": "season", "Duration_actual": "season"}
+        available = [col for col in columns if col in comparison.columns]
+        ai_ready_data = comparison[available]
+        ai_ready_data.columns = [columns[col] for col in available]
+        st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4),
+                           file_name="ai_shutdown_comparison.json")
+        if st.button("🧠 Simulate AI Response"):
+            for _, row in ai_ready_data.iterrows():
+                st.markdown(f"### Task: {row['Task']}")
+                st.markdown(f"Delay: {row['Delay']} days")
+                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
+                st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
+                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
+                st.markdown("---")
 else:
     st.info("Please upload both baseline and actual shutdown files to begin analysis.")
