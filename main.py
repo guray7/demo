@@ -53,6 +53,7 @@ def parse_xer(file):
     })
     task_df.dropna(subset=["Task ID", "Task"], inplace=True)
     task_df["Task ID"] = task_df["Task ID"].astype(str)
+    task_df["Task"] = task_df["Task"].str.strip()
     task_df['Start'] = pd.to_datetime(task_df['Start'], errors='coerce')
     task_df['End'] = pd.to_datetime(task_df['End'], errors='coerce')
     task_df['Duration'] = (task_df['End'] - task_df['Start']).dt.days
@@ -101,7 +102,7 @@ def draw_dependencies(fig, task_df, pred_df):
             y1 = succ.iloc[0]['Task']
             fig.add_annotation(
                 x=x1, y=y1,
-                ax=x0, ay=y0,
+                ax=x0, ay=y1,
                 showarrow=True,
                 arrowhead=3,
                 arrowsize=1,
@@ -112,55 +113,56 @@ def draw_dependencies(fig, task_df, pred_df):
     return fig
 
 if uploaded_file_1 and uploaded_file_2:
-    df1, pred1 = read_file(uploaded_file_1)
-    df2, pred2 = read_file(uploaded_file_2)
+    if uploaded_file_1.name == uploaded_file_2.name:
+        st.error("You uploaded the same file twice. Please upload two different files.")
+    else:
+        df1, pred1 = read_file(uploaded_file_1)
+        df2, pred2 = read_file(uploaded_file_2)
 
-    if df1 is not None and df2 is not None:
-        with col1:
-            st.subheader("📅 Baseline Gantt Chart")
-            fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
-            fig1.update_yaxes(autorange="reversed")
-            fig1 = draw_dependencies(fig1, df1, pred1)
-            st.plotly_chart(fig1, use_container_width=True)
+        if df1 is not None and df2 is not None:
+            with col1:
+                st.subheader("📅 Baseline Gantt Chart")
+                fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
+                fig1.update_yaxes(autorange="reversed")
+                fig1 = draw_dependencies(fig1, df1, pred1)
+                st.plotly_chart(fig1, use_container_width=True)
 
-        with col2:
-            st.subheader("📅 Actual Gantt Chart")
-            fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
-            fig2.update_yaxes(autorange="reversed")
-            fig2 = draw_dependencies(fig2, df2, pred2)
-            st.plotly_chart(fig2, use_container_width=True)
+            with col2:
+                st.subheader("📅 Actual Gantt Chart")
+                fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
+                fig2.update_yaxes(autorange="reversed")
+                fig2 = draw_dependencies(fig2, df2, pred2)
+                st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader("🧠 AI Analysis Data Preparation")
-        comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
-        comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
+            st.subheader("🧠 AI Analysis Data Preparation")
+            comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
+            comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
 
-        # Safe column mapping
-        columns = {
-            "Task": "Task",
-            "Equipment_baseline": "equipment",
-            "WBS Name_baseline": "equipment",
-            "Duration_baseline": "planned_duration",
-            "Duration_actual": "actual_duration",
-            "Crew Readiness_baseline": "planned_crew_readiness",
-            "Crew Readiness_actual": "actual_crew_readiness",
-            "Delay": "Delay",
-            "Season_actual": "season",
-            "Duration_actual": "season"  # fallback if Season_actual yoksa
-        }
+            columns = {
+                "Task": "Task",
+                "Equipment_baseline": "equipment",
+                "WBS Name_baseline": "equipment",
+                "Duration_baseline": "planned_duration",
+                "Duration_actual": "actual_duration",
+                "Crew Readiness_baseline": "planned_crew_readiness",
+                "Crew Readiness_actual": "actual_crew_readiness",
+                "Delay": "Delay",
+                "Season_actual": "season",
+                "Duration_actual": "season"
+            }
+            available = [col for col in columns if col in comparison.columns]
+            ai_ready_data = comparison[available]
+            ai_ready_data.columns = [columns[col] for col in available]
 
-        available = [col for col in columns if col in comparison.columns]
-        ai_ready_data = comparison[available]
-        ai_ready_data.columns = [columns[col] for col in available]
+            st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
 
-        st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
-
-        if st.button("🧠 Simulate AI Response"):
-            for _, row in ai_ready_data.iterrows():
-                st.markdown(f"### Task: {row['Task']}")
-                st.markdown(f"Delay: {row['Delay']} days")
-                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
-                st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
-                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
-                st.markdown("---")
+            if st.button("🧠 Simulate AI Response"):
+                for _, row in ai_ready_data.iterrows():
+                    st.markdown(f"### Task: {row['Task']}")
+                    st.markdown(f"Delay: {row['Delay']} days")
+                    st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
+                    st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
+                    st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
+                    st.markdown("---")
 else:
     st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
