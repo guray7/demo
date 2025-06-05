@@ -134,9 +134,6 @@ def draw_dependencies(fig, task_df, pred_df):
     return fig
 
 if uploaded_file_1 and uploaded_file_2:
-    if uploaded_file_1.name == uploaded_file_2.name:
-        st.error("You uploaded the same file twice. Please upload two different files.")
-    else:
         df1, pred1 = read_file(uploaded_file_1)
         df2, pred2 = read_file(uploaded_file_2)
         if df1 is not None and df2 is not None:
