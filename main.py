@@ -51,6 +51,8 @@ def parse_xer(file):
         'orig_dur_hr_cnt': 'Duration',
         'wbs_id': 'WBS'
     })
+    task_df.dropna(subset=["Task ID", "Task"], inplace=True)
+    task_df["Task ID"] = task_df["Task ID"].astype(str)
     task_df['Start'] = pd.to_datetime(task_df['Start'], errors='coerce')
     task_df['End'] = pd.to_datetime(task_df['End'], errors='coerce')
     task_df['Duration'] = (task_df['End'] - task_df['Start']).dt.days
@@ -60,13 +62,16 @@ def parse_xer(file):
         wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
         task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
 
-    if pred_df is not None and 'Predecessor' not in pred_df.columns:
-        pred_df = pred_df.rename(columns={
-            'task_id': 'Successor',
-            'pred_task_id': 'Predecessor',
-            'pred_type': 'Type',
-            'lag_hr_cnt': 'Lag'
-        })
+    if pred_df is not None:
+        if 'Predecessor' not in pred_df.columns:
+            pred_df = pred_df.rename(columns={
+                'task_id': 'Successor',
+                'pred_task_id': 'Predecessor',
+                'pred_type': 'Type',
+                'lag_hr_cnt': 'Lag'
+            })
+        pred_df["Predecessor"] = pred_df["Predecessor"].astype(str)
+        pred_df["Successor"] = pred_df["Successor"].astype(str)
 
     return task_df, pred_df
 
@@ -129,7 +134,7 @@ if uploaded_file_1 and uploaded_file_2:
         comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
         comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
 
-        # Güvenli kolon kontrolü ve eşleme
+        # Safe column mapping
         columns = {
             "Task": "Task",
             "Equipment_baseline": "equipment",
@@ -140,7 +145,7 @@ if uploaded_file_1 and uploaded_file_2:
             "Crew Readiness_actual": "actual_crew_readiness",
             "Delay": "Delay",
             "Season_actual": "season",
-            "Duration_actual": "season"  # fallback
+            "Duration_actual": "season"  # fallback if Season_actual yoksa
         }
 
         available = [col for col in columns if col in comparison.columns]
@@ -151,11 +156,11 @@ if uploaded_file_1 and uploaded_file_2:
 
         if st.button("🧠 Simulate AI Response"):
             for _, row in ai_ready_data.iterrows():
-                st.markdown(f"### Task: {row.get('Task', 'N/A')}")
-                st.markdown(f"Delay: {row.get('Delay', 'N/A')} days")
-                st.markdown(f"Planned Duration: {row.get('planned_duration', 'N/A')} → Actual Duration: {row.get('actual_duration', 'N/A')}")
+                st.markdown(f"### Task: {row['Task']}")
+                st.markdown(f"Delay: {row['Delay']} days")
+                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
                 st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
-                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row.get('Delay', 'N/A')}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
+                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
                 st.markdown("---")
 else:
     st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
