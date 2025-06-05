@@ -1,14 +1,21 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
+import json
 from datetime import datetime
 
-st.set_page_config(page_title="Primavera Gantt with Links", layout="wide")
-st.title("📊 Primavera Gantt Chart with Dependencies")
+st.set_page_config(page_title="Shutdown Delay Comparator (.csv & .xer)", layout="wide")
+st.title("📊 Shutdown Delay Analysis Panel (.csv & .xer)")
 
-uploaded_file = st.file_uploader("Upload Primavera .xer file with TASK, PROJWBS, TASKPRED", type="xer")
+col1, col2 = st.columns(2)
 
-def extract_table(lines, table_name):
+with col1:
+    uploaded_file_1 = st.file_uploader("📂 Upload Baseline Schedule (.csv or .xer)", type=["csv", "xer"], key="baseline_file")
+with col2:
+    uploaded_file_2 = st.file_uploader("📂 Upload Actual Schedule (.csv or .xer)", type=["csv", "xer"], key="actual_file")
+
+def extract_table_safe(lines, table_name):
     table_rows = []
     capturing = False
     headers = []
@@ -20,7 +27,10 @@ def extract_table(lines, table_name):
             headers = line.strip().split("\t")[1:]
         elif capturing and line.startswith("%R"):
             row = line.strip().split("\t")[1:]
-            row += [None] * (len(headers) - len(row))
+            if len(row) < len(headers):
+                row += [None] * (len(headers) - len(row))
+            elif len(row) > len(headers):
+                row = row[:len(headers)]
             table_rows.append(row)
         elif capturing and not line.startswith("%R") and not line.startswith("%F"):
             break
@@ -29,9 +39,9 @@ def extract_table(lines, table_name):
 
 def parse_xer(file):
     lines = file.read().decode("utf-8", errors="ignore").splitlines()
-    task_df = extract_table(lines, "TASK")
-    wbs_df = extract_table(lines, "PROJWBS")
-    pred_df = extract_table(lines, "TASKPRED")
+    task_df = extract_table_safe(lines, "TASK")
+    wbs_df = extract_table_safe(lines, "PROJWBS")
+    pred_df = extract_table_safe(lines, "TASKPRED")
 
     task_df = task_df.rename(columns={
         'task_id': 'Task ID',
@@ -46,34 +56,31 @@ def parse_xer(file):
     task_df['Duration'] = (task_df['End'] - task_df['Start']).dt.days
     task_df.dropna(subset=["Start", "End"], inplace=True)
 
-    wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
-    task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
+    if wbs_df is not None:
+        wbs_df = wbs_df.rename(columns={'wbs_id': 'WBS', 'wbs_name': 'WBS Name'})
+        task_df = task_df.merge(wbs_df[['WBS', 'WBS Name']], on='WBS', how='left')
 
-    pred_df = pred_df.rename(columns={
-        'task_id': 'Successor',
-        'pred_task_id': 'Predecessor',
-        'pred_type': 'Type',
-        'lag_hr_cnt': 'Lag'
-    })
     return task_df, pred_df
 
-def plot_gantt_with_dependencies(tasks, preds):
-    fig = go.Figure()
+def read_file(uploaded_file):
+    filename = uploaded_file.name.lower()
+    if filename.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+        df["Start"] = pd.to_datetime(df["Start"])
+        df["End"] = df["Start"] + pd.to_timedelta(df["Duration"], unit="D")
+        return df, None
+    elif filename.endswith(".xer"):
+        return parse_xer(uploaded_file)
+    else:
+        st.error("Unsupported file type")
+        return None, None
 
-    for i, row in tasks.iterrows():
-        fig.add_trace(go.Bar(
-            x=[(row['End'] - row['Start']).days],
-            y=[row['Task']],
-            base=row['Start'],
-            orientation='h',
-            name=row['Task'],
-            marker=dict(color='royalblue'),
-            hovertext=f"{row['WBS Name']} ({row['Task']})"
-        ))
-
-    for _, link in preds.iterrows():
-        pred = tasks[tasks['Task ID'] == link['Predecessor']]
-        succ = tasks[tasks['Task ID'] == link['Successor']]
+def draw_dependencies(fig, task_df, pred_df):
+    if pred_df is None:
+        return fig
+    for _, link in pred_df.iterrows():
+        pred = task_df[task_df['Task ID'] == link['Predecessor']]
+        succ = task_df[task_df['Task ID'] == link['Successor']]
         if not pred.empty and not succ.empty:
             x0 = pred.iloc[0]['End']
             x1 = succ.iloc[0]['Start']
@@ -89,19 +96,53 @@ def plot_gantt_with_dependencies(tasks, preds):
                 arrowcolor='red',
                 opacity=0.8
             )
-
-    fig.update_layout(
-        title="Gantt Chart with Dependencies",
-        barmode='stack',
-        xaxis=dict(type='date', title='Date'),
-        yaxis=dict(autorange='reversed', title='Tasks'),
-        height=800,
-    )
     return fig
 
-if uploaded_file:
-    task_df, pred_df = parse_xer(uploaded_file)
-    fig = plot_gantt_with_dependencies(task_df, pred_df)
-    st.plotly_chart(fig, use_container_width=True)
+if uploaded_file_1 and uploaded_file_2:
+    df1, pred1 = read_file(uploaded_file_1)
+    df2, pred2 = read_file(uploaded_file_2)
+
+    if df1 is not None and df2 is not None:
+        with col1:
+            st.subheader("📅 Baseline Gantt Chart")
+            fig1 = px.timeline(df1, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df1.columns else "WBS Name")
+            fig1.update_yaxes(autorange="reversed")
+            fig1 = draw_dependencies(fig1, df1, pred1)
+            st.plotly_chart(fig1, use_container_width=True)
+
+        with col2:
+            st.subheader("📅 Actual Gantt Chart")
+            fig2 = px.timeline(df2, x_start="Start", x_end="End", y="Task", color="Equipment" if "Equipment" in df2.columns else "WBS Name")
+            fig2.update_yaxes(autorange="reversed")
+            fig2 = draw_dependencies(fig2, df2, pred2)
+            st.plotly_chart(fig2, use_container_width=True)
+
+        st.subheader("🧠 AI Analysis Data Preparation")
+        comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
+        comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
+
+        ai_ready_data = comparison[[
+            "Task",
+            "Equipment_baseline" if "Equipment_baseline" in comparison.columns else "WBS Name_baseline",
+            "Duration_baseline",
+            "Duration_actual",
+            "Crew Readiness_baseline" if "Crew Readiness_baseline" in comparison.columns else "Duration_baseline",
+            "Crew Readiness_actual" if "Crew Readiness_actual" in comparison.columns else "Duration_actual",
+            "Delay",
+            "Season_actual" if "Season_actual" in comparison.columns else "Duration_actual"
+        ]]
+
+        ai_ready_data.columns = ["Task", "equipment", "planned_duration", "actual_duration", "planned_crew_readiness", "actual_crew_readiness", "Delay", "season"]
+
+        st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
+
+        if st.button("🧠 Simulate AI Response"):
+            for _, row in ai_ready_data.iterrows():
+                st.markdown(f"### Task: {row['Task']}")
+                st.markdown(f"Delay: {row['Delay']} days")
+                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
+                st.markdown(f"Planned Readiness: {row['planned_crew_readiness']}% → Actual: {row['actual_crew_readiness']}%")
+                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row['season']}?")
+                st.markdown("---")
 else:
-    st.info("Please upload a valid .xer file containing TASK, PROJWBS and TASKPRED tables.")
+    st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
