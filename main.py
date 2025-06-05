@@ -1,72 +1,49 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import datetime
 
 st.cache_data.clear()
+st.set_page_config(page_title="📅 5-Month Lookahead Gantt", layout="wide")
+st.title("📊 Gantt Chart from 5-Month Lookahead Excel")
 
-st.set_page_config(page_title="Gantt Chart Generator", layout="wide")
-st.title("📅 Shutdown Gantt Chart from Colored Excel Cells")
-
-uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload your .xlsx file", type=["xlsx"])
 
 if uploaded_file:
-    xls = pd.ExcelFile(uploaded_file)
-    df = xls.parse(xls.sheet_names[0])
+    df = pd.read_excel(uploaded_file)
+
+    # Başlık satırını düzelt
     df.columns = df.iloc[0]
     df = df[1:].copy()
-    df.columns = [str(c) for c in df.columns]
 
-    # Benzersiz sütun isimleri oluştur
-    used = {}
-    new_cols = []
-    for col in df.columns:
-        if col in used:
-            used[col] += 1
-            new_cols.append(f"{col}_{used[col]}")
-        else:
-            used[col] = 0
-            new_cols.append(col)
-    df.columns = new_cols
+    # İlgili sütunları adlandır
+    df = df.rename(columns={df.columns[0]: "Area", df.columns[1]: "Activity"})
 
-    # Önemli başlıkları adlandır
-    df = df.rename(columns={df.columns[0]: "Tie-in Point", df.columns[1]: "Tie-in Type", df.columns[2]: "SD Requirement"})
+    # Tarih sütunlarını belirle (3. sütundan sonrası)
+    date_cols = df.columns[2:]
 
-    # Gün kolonlarını bul
-    day_columns = [col for col in df.columns if "day" in col or "night" in col]
-
-    # Başlangıç ve bitiş gününü hesapla
-    def detect_start_end(row):
+    # Başlangıç ve bitiş tarihini bul
+    def find_start_end(row):
         start, end = None, None
-        for col in day_columns:
-            val = str(row[col]).strip().lower()
-            if val not in ["", "nan", "none"]:
-                day_num = ''.join(filter(str.isdigit, col))
-                if day_num == "":
-                    day_num = "1"
-                day = int(day_num)
+        for col in date_cols:
+            val = str(row[col]).strip()
+            if val == "1":
                 if start is None:
-                    start = day
-                end = day
+                    start = col
+                end = col
         return pd.Series([start, end])
 
-    df[['Start Day', 'End Day']] = df.apply(detect_start_end, axis=1)
-    df_cleaned = df.dropna(subset=["Start Day"])
+    df[["Start", "End"]] = df.apply(find_start_end, axis=1)
+    df_cleaned = df.dropna(subset=["Start", "End"])
 
-    # Tarihe çevir
-    base_date = datetime.date.today()
-    df_cleaned["Start Date"] = df_cleaned["Start Day"].apply(lambda x: base_date + datetime.timedelta(days=int(x) - 1))
-    df_cleaned["End Date"] = df_cleaned["End Day"].apply(lambda x: base_date + datetime.timedelta(days=int(x) - 1))
-
-    # Gantt grafiği oluştur
+    # Gantt çizimi
     fig = px.timeline(
         df_cleaned,
-        x_start="Start Date",
-        x_end="End Date",
-        y="Tie-in Point",
-        color="SD Requirement",
-        title="📊 Shutdown Gantt Chart",
-        labels={"Tie-in Point": "Task"}
+        x_start="Start",
+        x_end="End",
+        y="Activity",
+        color="Area",
+        title="🗓 5-Month Lookahead Gantt Chart",
+        labels={"Activity": "Task"},
     )
     fig.update_yaxes(autorange="reversed")
     st.plotly_chart(fig, use_container_width=True)
