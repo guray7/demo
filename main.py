@@ -129,33 +129,33 @@ if uploaded_file_1 and uploaded_file_2:
         comparison = df1.merge(df2, on="Task", suffixes=("_baseline", "_actual"))
         comparison["Delay"] = (comparison["Start_actual"] - comparison["Start_baseline"]).dt.days
 
-        season_col = "Season_actual" if "Season_actual" in comparison.columns else "Duration_actual"
-        equipment_col = "Equipment_baseline" if "Equipment_baseline" in comparison.columns else "WBS Name_baseline"
-        planned_crew_col = "Crew Readiness_baseline" if "Crew Readiness_baseline" in comparison.columns else "Duration_baseline"
-        actual_crew_col = "Crew Readiness_actual" if "Crew Readiness_actual" in comparison.columns else "Duration_actual"
+        # Güvenli kolon kontrolü ve eşleme
+        columns = {
+            "Task": "Task",
+            "Equipment_baseline": "equipment",
+            "WBS Name_baseline": "equipment",
+            "Duration_baseline": "planned_duration",
+            "Duration_actual": "actual_duration",
+            "Crew Readiness_baseline": "planned_crew_readiness",
+            "Crew Readiness_actual": "actual_crew_readiness",
+            "Delay": "Delay",
+            "Season_actual": "season",
+            "Duration_actual": "season"  # fallback
+        }
 
-        ai_ready_data = comparison[[
-            "Task",
-            equipment_col,
-            "Duration_baseline",
-            "Duration_actual",
-            planned_crew_col,
-            actual_crew_col,
-            "Delay",
-            season_col
-        ]]
-
-        ai_ready_data.columns = ["Task", "equipment", "planned_duration", "actual_duration", "planned_crew_readiness", "actual_crew_readiness", "Delay", "season"]
+        available = [col for col in columns if col in comparison.columns]
+        ai_ready_data = comparison[available]
+        ai_ready_data.columns = [columns[col] for col in available]
 
         st.download_button("⬇️ Download for AI", json.dumps(ai_ready_data.to_dict(orient="records"), indent=4), file_name="ai_shutdown_comparison.json")
 
         if st.button("🧠 Simulate AI Response"):
             for _, row in ai_ready_data.iterrows():
-                st.markdown(f"### Task: {row['Task']}")
-                st.markdown(f"Delay: {row['Delay']} days")
-                st.markdown(f"Planned Duration: {row['planned_duration']} → Actual Duration: {row['actual_duration']}")
-                st.markdown(f"Planned Readiness: {row['planned_crew_readiness']}% → Actual: {row['actual_crew_readiness']}%")
-                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row['Delay']}-day delay in this shutdown task?\nHow can similar delays be prevented in {row['season']}?")
+                st.markdown(f"### Task: {row.get('Task', 'N/A')}")
+                st.markdown(f"Delay: {row.get('Delay', 'N/A')} days")
+                st.markdown(f"Planned Duration: {row.get('planned_duration', 'N/A')} → Actual Duration: {row.get('actual_duration', 'N/A')}")
+                st.markdown(f"Planned Readiness: {row.get('planned_crew_readiness', 'N/A')}% → Actual: {row.get('actual_crew_readiness', 'N/A')}%")
+                st.markdown(f"**AI Prompt Preview:**\nWhat factors likely caused a {row.get('Delay', 'N/A')}-day delay in this shutdown task?\nHow can similar delays be prevented in {row.get('season', 'N/A')}?")
                 st.markdown("---")
 else:
     st.info("Please upload both baseline and actual shutdown CSV or XER files to begin analysis.")
