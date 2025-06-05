@@ -72,8 +72,8 @@ def read_file(uploaded_file):
             return None, None
 
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # Görev adını içeren ilk uygun sütunu bul
+
+        # Görev adı olarak alınacak ilk sütunu bul
         task_col = next((col for col in df.columns if "tie-in" in col.lower() or "task" in col.lower()), None)
         if not task_col:
             df.insert(0, "Task", [f"Task {i+1}" for i in range(len(df))])
@@ -84,28 +84,17 @@ def read_file(uploaded_file):
         other_static = [col for col in df.columns if col not in static_cols and not re.match(r"\d+", col)]
         static_cols += other_static
 
-        # Tarih sütunları: "1 day", "1 night", vb.
+        # Günlük zaman sütunlarını al (örn. '1 day', '2 night' vs)
         time_columns = [col for col in df.columns if col not in static_cols]
 
         df_long = df.melt(id_vars=static_cols, value_vars=time_columns, var_name="Slot", value_name="Value")
         df_long = df_long[df_long["Value"].notna() & (df_long["Value"].astype(str).str.strip() != "")]
 
-        # Tarihleri oluştur
+        # Slot'tan zaman aralığı üret
         def slot_to_datetime(slot):
             match = re.match(r"(\d+)\s*(day|night)?", slot.lower())
             if match:
-                day = int(match.group(1))
-                shift = match.group(2)
-                base = pd.to_datetime("2022-01-01")  # senin istediğin sabit bir tarih başlangıcı
-                hour_offset = 8 if shift == "day" else 20 if shift == "night" else 0
-                start = base + pd.Timedelta(days=day - 1, hours=hour_offset)
-                end = start + pd.Timedelta(hours=8)
-                return start, end
-            return None, None
 
-        df_long[["Start", "End"]] = df_long["Slot"].apply(lambda x: pd.Series(slot_to_datetime(x)))
-        df_result = df_long[["Task", "Start", "End"]].dropna()
-        df_re_
 
 
 
