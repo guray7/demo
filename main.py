@@ -3,6 +3,8 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+st.cache_resource.clear()
+
 
 st.set_page_config(page_title="XML to Gantta Viewer", layout="wide")
 st.title("📊 Primavera XML to Gantt Chart")
