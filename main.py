@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 
+st.cache_resource.clear()
+
 st.set_page_config(page_title="XML to Gantt Viewer", layout="wide")
 st.title("📊 Primavera XML to Gantt Chart with Dependencies")
 
