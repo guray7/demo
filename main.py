@@ -1,49 +1,89 @@
 import streamlit as st
+import xml.etree.ElementTree as ET
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
 
-st.cache_data.clear()
-st.set_page_config(page_title="📅 5-Month Lookahead Gantt", layout="wide")
-st.title("📊 Gantt Chart from 5-Month Lookahead Excel")
+st.set_page_config(page_title="XML-to-Gantt Converter", layout="wide")
+st.title("📊 Gantt Chart from Primavera XML")
 
-uploaded_file = st.file_uploader("Upload your .xlsx file", type=["xlsx"])
+# File uploader
+uploaded_xml = st.file_uploader("Upload Primavera XML file", type=["xml"])
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+def parse_primavera_xml(xml_file):
+    # Parse XML with namespace
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    ns = {'p': root.tag.split('}')[0].strip('{')}
 
-    # Başlık satırını düzelt
-    df.columns = df.iloc[0]
-    df = df[1:].copy()
+    # Extract activities
+    activities = []
+    for act in root.findall('.//p:Activity', ns):
+        obj_id = act.find('p:ObjectId', ns).text
+        aid = act.find('p:ActivityId', ns).text
+        name = act.find('p:ActivityName', ns).text
+        start = act.find('p:StartDate', ns).text
+        finish = act.find('p:FinishDate', ns).text
+        activities.append({
+            'object_id': obj_id,
+            'activity_id': aid,
+            'name': name,
+            'start': pd.to_datetime(start),
+            'finish': pd.to_datetime(finish)
+        })
 
-    # İlgili sütunları adlandır
-    df = df.rename(columns={df.columns[0]: "Area", df.columns[1]: "Activity"})
+    # Extract relationships
+    links = []
+    for rel in root.findall('.//p:Relationship', ns):
+        pred = rel.find('p:PredecessorObjectId', ns).text
+        succ = rel.find('p:SuccessorObjectId', ns).text
+        links.append({'from': pred, 'to': succ})
 
-    # Tarih sütunlarını belirle (3. sütundan sonrası)
-    date_cols = df.columns[2:]
+    return pd.DataFrame(activities), links
 
-    # Başlangıç ve bitiş tarihini bul
-    def find_start_end(row):
-        start, end = None, None
-        for col in date_cols:
-            val = str(row[col]).strip()
-            if val == "1":
-                if start is None:
-                    start = col
-                end = col
-        return pd.Series([start, end])
+if uploaded_xml:
+    df_acts, links = parse_primavera_xml(uploaded_xml)
+    st.subheader("Activities Table")
+    st.dataframe(df_acts[['activity_id', 'name', 'start', 'finish']])
 
-    df[["Start", "End"]] = df.apply(find_start_end, axis=1)
-    df_cleaned = df.dropna(subset=["Start", "End"])
+    # Build Gantt
+    fig = go.Figure()
+    for idx, row in df_acts.iterrows():
+        fig.add_trace(go.Bar(
+            x=[(row['finish'] - row['start']).days],
+            y=[row['name']],
+            base=row['start'],
+            orientation='h',
+            name=row['activity_id'],
+            hovertemplate=f"{row['activity_id']}: {row['name']}<br>Start: {row['start']}<br>Finish: {row['finish']}"
+        ))
 
-    # Gantt çizimi
-    fig = px.timeline(
-        df_cleaned,
-        x_start="Start",
-        x_end="End",
-        y="Activity",
-        color="Area",
-        title="🗓 5-Month Lookahead Gantt Chart",
-        labels={"Activity": "Task"},
+    # Add dependency arrows
+    id_map = {row['object_id']: idx for idx, row in df_acts.iterrows()}
+    for link in links:
+        if link['from'] in id_map and link['to'] in id_map:
+            src = df_acts.loc[id_map[link['from']]]
+            dst = df_acts.loc[id_map[link['to']]]
+            # Arrow from end of src to start of dst
+            fig.add_annotation(
+                x=dst['start'],
+                y=dst['name'],
+                ax=src['finish'],
+                ay=src['name'],
+                xref='x', yref='y', axref='x', ayref='y',
+                showarrow=True,
+                arrowhead=3,
+                arrowsize=1,
+                arrowwidth=1
+            )
+
+    fig.update_layout(
+        barmode='stack',
+        xaxis_title='Date',
+        yaxis_title='Activity',
+        showlegend=False,
+        height=600
     )
-    fig.update_yaxes(autorange="reversed")
+
+    st.subheader("Gantt Chart with Dependencies")
     st.plotly_chart(fig, use_container_width=True)
