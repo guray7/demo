@@ -4,8 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 
-st.cache_resource.clear()
-
 st.set_page_config(page_title="XML to Gantt Viewer", layout="wide")
 st.title("📊 Primavera XML to Gantt Chart with Dependencies")
 
@@ -14,16 +12,15 @@ uploaded_file = st.file_uploader("📂 Upload Primavera XML File", type=["xml"])
 if uploaded_file:
     tree = ET.parse(uploaded_file)
     root = tree.getroot()
-    ns = {'ns': 'http://schemas.microsoft.com/project'}
 
     activities = []
     uid_to_name = {}
 
-    for task in root.findall(".//ns:Task", ns):
-        uid_elem = task.find("ns:UID", ns)
-        name_elem = task.find("ns:Name", ns)
-        start_elem = task.find("ns:Start", ns)
-        finish_elem = task.find("ns:Finish", ns)
+    for task in root.findall(".//{http://schemas.microsoft.com/project}Task"):
+        uid_elem = task.find("{http://schemas.microsoft.com/project}UID")
+        name_elem = task.find("{http://schemas.microsoft.com/project}Name")
+        start_elem = task.find("{http://schemas.microsoft.com/project}Start")
+        finish_elem = task.find("{http://schemas.microsoft.com/project}Finish")
 
         if None in (uid_elem, name_elem, start_elem, finish_elem):
             continue
@@ -46,18 +43,20 @@ if uploaded_file:
         })
 
     links = []
-    for task in root.findall(".//ns:Task", ns):
-        uid_elem = task.find("ns:UID", ns)
+    for task in root.findall(".//{http://schemas.microsoft.com/project}Task"):
+        uid_elem = task.find("{http://schemas.microsoft.com/project}UID")
         if uid_elem is None:
             continue
         uid = uid_elem.text
-        for pred in task.findall("ns:PredecessorLink", ns):
-            pred_uid_elem = pred.find("ns:PredecessorUID", ns)
+        for pred in task.findall("{http://schemas.microsoft.com/project}PredecessorLink"):
+            pred_uid_elem = pred.find("{http://schemas.microsoft.com/project}PredecessorUID")
             if pred_uid_elem is not None:
                 links.append((pred_uid_elem.text, uid))
 
     if activities:
         df = pd.DataFrame(activities)
+        st.write("✅ Found", len(df), "activities and", len(links), "dependencies")
+
         fig = go.Figure()
 
         for idx, row in df.iterrows():
