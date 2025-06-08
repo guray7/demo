@@ -6,7 +6,7 @@ from datetime import datetime
 st.cache_resource.clear()
 
 
-st.set_page_config(page_title="XML to Gantta Viewer", layout="wide")
+st.set_page_config(page_title="XML to Gantt Viewer", layout="wide")
 st.title("📊 Primavera XML to Gantt Chart")
 
 uploaded_file = st.file_uploader("📂 Upload Primavera XML File", type=["xml"])
