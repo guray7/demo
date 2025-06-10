@@ -1,110 +1,99 @@
-import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import json
 from datetime import datetime
-import xml.etree.ElementTree as ET
+import os
 
-st.set_page_config(page_title="Primavera Gantt Tool", layout="wide")
-st.title("📊 Primavera XML/XER to Gantt Chart with Dependencies")
+# 1. .xer dosyasÄ±nÄ±n yolu
+file_path = "3e8bd7ba-deeb-4166-9d38-2c426496c4f1.xer"
 
-uploaded_file = st.file_uploader("📂 Upload Primavera XML or XER File", type=["xml", "xer"])
+# 2. DosyayÄ± oku
+with open(file_path, encoding="utf-8", errors="ignore") as f:
+    lines = f.readlines()
 
-def parse_xml(file):
-    tree = ET.parse(file)
-    root = tree.getroot()
-    activities = []
-    links = []
-    for task in root.findall(".//{http://schemas.microsoft.com/project}Task"):
-        uid = task.findtext("{http://schemas.microsoft.com/project}UID")
-        name = task.findtext("{http://schemas.microsoft.com/project}Name")
-        start = task.findtext("{http://schemas.microsoft.com/project}Start")
-        finish = task.findtext("{http://schemas.microsoft.com/project}Finish")
-        if None in (uid, name, start, finish):
-            continue
-        try:
-            start_dt = datetime.fromisoformat(start.replace("Z", ""))
-            finish_dt = datetime.fromisoformat(finish.replace("Z", ""))
-            if start_dt == finish_dt:
-                finish_dt += pd.Timedelta(days=1)
-            activities.append({"UID": uid, "ActivityName": name, "Start": start_dt, "Finish": finish_dt})
-        except:
-            continue
-        for pred in task.findall("{http://schemas.microsoft.com/project}PredecessorLink"):
-            pred_uid = pred.findtext("{http://schemas.microsoft.com/project}PredecessorUID")
-            if pred_uid:
-                links.append((pred_uid, uid))
-    return pd.DataFrame(activities), links
+# 3. Tablo bloklarÄ±nÄ± ayÄ±r
+table_blocks = {}
+current_table = None
+for line in lines:
+    if line.startswith("%T\t"):
+        current_table = line.strip().split("\t")[1]
+        table_blocks[current_table] = []
+    elif current_table:
+        table_blocks[current_table].append(line.strip())
 
-def parse_xer(file):
-    lines = file.read().decode("utf-8").splitlines()
-    tasks, preds = [], []
-    for line in lines:
-        if line.startswith("TASK"):
-            parts = line.split("\t")
-            try:
-                uid = parts[1]
-                name = parts[10]
-                start = datetime.strptime(parts[15], "%d-%b-%Y")
-                finish = datetime.strptime(parts[16], "%d-%b-%Y")
-                if start == finish:
-                    finish += pd.Timedelta(days=1)
-                tasks.append({"UID": uid, "ActivityName": name, "Start": start, "Finish": finish})
-            except:
-                continue
-        elif line.startswith("TASKPRED"):
-            parts = line.split("\t")
-            if len(parts) >= 3:
-                preds.append((parts[1], parts[2]))
-    return pd.DataFrame(tasks), preds
+# 4. Temiz tablo dÃ¶nÃ¼ÅŸtÃ¼rÃ¼cÃ¼
+def clean_table(raw_rows):
+    rows = [row.split("\t") for row in raw_rows]
+    header = rows[0]
+    data = []
+    for row in rows[1:]:
+        if len(row) < len(header):
+            row += [""] * (len(header) - len(row))
+        elif len(row) > len(header):
+            row = row[:len(header)]
+        data.append(row)
+    return pd.DataFrame(data, columns=header)
 
-if uploaded_file:
-    if uploaded_file.name.endswith(".xml"):
-        df, links = parse_xml(uploaded_file)
-    else:
-        df, links = parse_xer(uploaded_file)
+# 5. TASK ve TASKPRED tablolarÄ±nÄ± al
+df_task = clean_table(table_blocks["TASK"])
+df_pred = clean_table(table_blocks["TASKPRED"])
 
-    if not df.empty:
-        st.success(f"✅ Found {len(df)} activities and {len(links)} dependencies")
-        fig = go.Figure()
-        for _, row in df.iterrows():
-            fig.add_trace(go.Bar(
-                x=[(row['Finish'] - row['Start']).days],
-                y=[row['ActivityName']],
-                base=row['Start'],
-                orientation='h',
-                marker=dict(color='skyblue'),
-                showlegend=False
-            ))
+# 6. Tarih dÃ¶nÃ¼ÅŸÃ¼mleri
+df_task["early_start_date"] = pd.to_datetime(df_task["early_start_date"], errors="coerce")
+df_task["early_end_date"] = pd.to_datetime(df_task["early_end_date"], errors="coerce")
 
-        name_map = df.set_index("UID")["ActivityName"].to_dict()
-        uid_time = df.set_index("UID")["Start"].to_dict()
-        uid_end = df.set_index("UID")["Finish"].to_dict()
+# 7. Gantt gÃ¶rev verisi hazÄ±rla
+tasks_json = []
+for _, row in df_task.iterrows():
+    if pd.notna(row["early_start_date"]) and pd.notna(row["early_end_date"]):
+        start = row["early_start_date"]
+        end = row["early_end_date"]
+        duration = max((end - start).days, 1)
+        tasks_json.append({
+            "id": int(row["task_id"]),
+            "text": row["task_name"],
+            "start_date": start.strftime("%Y-%m-%d"),
+            "duration": duration
+        })
 
-        for pred, succ in links:
-            if pred in name_map and succ in name_map:
-                fig.add_annotation(
-                    x=uid_time[succ],
-                    y=name_map[succ],
-                    ax=uid_end[pred],
-                    ay=name_map[pred],
-                    xref="x",
-                    yref="y",
-                    axref="x",
-                    ayref="y",
-                    showarrow=True,
-                    arrowhead=3,
-                    arrowsize=1,
-                    arrowwidth=1,
-                    opacity=0.6
-                )
+# 8. BaÄŸÄ±mlÄ±lÄ±k (link) verisi hazÄ±rla
+link_type_map = {
+    "PR_FS": "0", "PR_SS": "1", "PR_FF": "2", "PR_SF": "3"
+}
+links_json = []
+for i, row in df_pred.iterrows():
+    if row["pred_type"] in link_type_map:
+        links_json.append({
+            "id": i + 1,
+            "source": int(row["pred_task_id"]),
+            "target": int(row["task_id"]),
+            "type": link_type_map[row["pred_type"]]
+        })
 
-        fig.update_layout(
-            title="Primavera Gantt Chart with Dependencies",
-            xaxis_title="Date",
-            yaxis_title="Activity",
-            yaxis=dict(autorange="reversed"),
-            height=800
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.error("No valid activities found.")
+# 9. Gantt JSON verisini HTML iÃ§ine gÃ¶m
+gantt_data = {"data": tasks_json, "links": links_json}
+html_output = os.path.join(os.path.dirname(file_path), "gantt_output_embedded.html")
+
+with open(html_output, "w", encoding="utf-8") as f:
+    f.write(f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gantt Output</title>
+  <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
+  <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
+</head>
+<body>
+  <div id="gantt_here" style="width:100%; height:800px;"></div>
+  <script>
+    gantt.config.date_format = "%Y-%m-%d";
+    gantt.init("gantt_here");
+    var data = {json.dumps(gantt_data)};
+    gantt.parse(data);
+  </script>
+</body>
+</html>
+""")
+
+print("âœ… Gantt HTML baÅŸarÄ±yla oluÅŸturuldu!")
+print(f"ðŸ“„ AÃ§mak iÃ§in: {html_output}")
