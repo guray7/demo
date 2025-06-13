@@ -4,6 +4,8 @@ import tempfile
 from datetime import datetime
 from xer_to_gantt import XerParser, GanttConverter  # Bu senin yukarıdaki kodun .py dosyasına kaydedilmeli
 
+st.cache_resource.clear()
+
 st.set_page_config(page_title="🛠️ XER to Gantt JSON Converter", layout="centered")
 st.title("📄 Primavera .xer → 📊 DHTMLX Gantt JSON")
 
