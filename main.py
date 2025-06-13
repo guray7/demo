@@ -33,8 +33,7 @@ if uploaded_file:
         )
 
         if st.checkbox("📋 JSON çıktısını TAM GÖSTER (metin halinde)"):
-            json_str = json.dumps(gantt_data, indent=2, ensure_ascii=False)
-            st.text_area("📄 JSON Çıktısı (TAM)", json_str, height=800)
+            print(gantt_data)
 
 
 
