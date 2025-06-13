@@ -24,4 +24,16 @@ if uploaded_file:
             gantt_data = converter.convert()
 
         st.success("✅ Başarıyla dönüştürüldü!")
-        st.
+
+        st.download_button(
+            label="📥 JSON çıktısını indir",
+            data=json.dumps(gantt_data, indent=2),
+            file_name="gantt_output.json",
+            mime="application/json"
+        )
+
+        if st.checkbox("📋 JSON çıktısını göster"):
+            st.json(gantt_data)
+
+    except Exception as e:
+        st.error(f"❌ Hata: {e}")
