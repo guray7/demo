@@ -32,8 +32,10 @@ if uploaded_file:
             mime="application/json"
         )
 
-        if st.checkbox("📋 JSON çıktısını göster"):
-            st.json(gantt_data)
+        if st.checkbox("📋 JSON çıktısını TAMAMEN göster"):
+            json_str = json.dumps(gantt_data, indent=2, ensure_ascii=False)
+            st.text_area("📄 JSON Çıktısı (Tamamı)", json_str, height=600)
+
 
     except Exception as e:
         st.error(f"❌ Hata: {e}")
